@@ -7,6 +7,7 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.decomposition import PCA
 import logging
 import os
+from functools import lru_cache
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -28,23 +29,50 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(BASE_DIR, 'models')
 SCALING_DIR = os.path.join(BASE_DIR, 'scaling_encoding')
 
-# Load models and encoders
-try:
-    linear_model = joblib.load(os.path.join(MODELS_DIR, 'linear_regression_model.pkl'))
-    gradient_model = joblib.load(os.path.join(MODELS_DIR, 'gradient_boosting_model.pkl'))
-    random_forest_model = joblib.load(os.path.join(MODELS_DIR, 'random_forest_model.pkl'))
-    ensemble_model = joblib.load(os.path.join(MODELS_DIR, 'ensemble_model.pkl'))
-    
-    # Load preprocessing objects
-    scaler = joblib.load(os.path.join(SCALING_DIR, 'scaler.pkl'))
-    pca = joblib.load(os.path.join(SCALING_DIR, 'pca.pkl'))
-    country_encoder = joblib.load(os.path.join(SCALING_DIR, 'country_encoder.pkl'))
-    gender_encoder = joblib.load(os.path.join(SCALING_DIR, 'gender_encoder.pkl'))
-except Exception as e:
-    logger.error(f"Error loading models: {e}")
-    raise
+# Cache model loading
+@lru_cache(maxsize=1)
+def load_models():
+    try:
+        return {
+            'linear': joblib.load(os.path.join(MODELS_DIR, 'linear_regression_model.pkl')),
+            'gradient': joblib.load(os.path.join(MODELS_DIR, 'gradient_boosting_model.pkl')),
+            'random_forest': joblib.load(os.path.join(MODELS_DIR, 'random_forest_model.pkl')),
+            'ensemble': joblib.load(os.path.join(MODELS_DIR, 'ensemble_model.pkl'))
+        }
+    except Exception as e:
+        logger.error(f"Error loading models: {e}")
+        raise
 
-# List of valid countries (should match your training data)
+@lru_cache(maxsize=1)
+def load_preprocessors():
+    try:
+        return {
+            'scaler': joblib.load(os.path.join(SCALING_DIR, 'scaler.pkl')),
+            'pca': joblib.load(os.path.join(SCALING_DIR, 'pca.pkl')),
+            'country_encoder': joblib.load(os.path.join(SCALING_DIR, 'country_encoder.pkl')),
+            'gender_encoder': joblib.load(os.path.join(SCALING_DIR, 'gender_encoder.pkl'))
+        }
+    except Exception as e:
+        logger.error(f"Error loading preprocessors: {e}")
+        raise
+
+# Initialize models and preprocessors lazily
+models = None
+preprocessors = None
+
+def get_models():
+    global models
+    if models is None:
+        models = load_models()
+    return models
+
+def get_preprocessors():
+    global preprocessors
+    if preprocessors is None:
+        preprocessors = load_preprocessors()
+    return preprocessors
+
+# Rest of your code remains the same, just update the references
 COUNTRIES = [
     "Afghanistan", "Africa Eastern and Southern", "Africa Western and Central", "Albania",
     "Algeria", "Angola", "Antigua and Barbuda", "Arab World", "Argentina", "Armenia",
@@ -110,6 +138,8 @@ class PredictionInput(BaseModel):
 
 def encode_country(Country: str) -> int:
     try:
+        preprocessors = get_preprocessors()
+        country_encoder = preprocessors['country_encoder']
         if Country not in country_encoder.classes_:
             raise ValueError(f"Country '{Country}' not found in training data")
         encoded_value = country_encoder.transform([Country])[0]
@@ -121,6 +151,8 @@ def encode_country(Country: str) -> int:
 
 def encode_gender(Gender: str) -> int:
     try:
+        preprocessors = get_preprocessors()
+        gender_encoder = preprocessors['gender_encoder']
         if Gender.lower() not in [g.lower() for g in gender_encoder.classes_]:
             raise ValueError(f"Gender must be one of: {list(gender_encoder.classes_)}")
         encoded_value = gender_encoder.transform([Gender])[0]
@@ -176,13 +208,14 @@ def preprocess_input(input_data: PredictionInput):
         features = create_full_feature_array(input_data)
         logger.info(f"Created feature array shape: {features.shape}")
         
+        preprocessors = get_preprocessors()
         # Scale all features using the same scaler as during training
-        features_scaled = scaler.transform(features)
+        features_scaled = preprocessors['scaler'].transform(features)
         logger.info(f"Scaled features shape: {features_scaled.shape}")
         logger.info(f"Scaled features: {features_scaled}")
         
         # Apply PCA transformation using the same PCA as during training
-        features_pca = pca.transform(features_scaled)
+        features_pca = preprocessors['pca'].transform(features_scaled)
         logger.info(f"PCA transformed features shape: {features_pca.shape}")
         logger.info(f"PCA features: {features_pca}")
         
@@ -198,15 +231,10 @@ async def predict(input_data: PredictionInput):
         # Preprocess the input data
         features = preprocess_input(input_data)
         
-        # Select the appropriate model
-        model_map = {
-            'linear': linear_model,
-            'gradient': gradient_model,
-            'random_forest': random_forest_model,
-            'ensemble': ensemble_model
-        }
+        # Get models
+        models_dict = get_models()
+        selected_model = models_dict.get(input_data.model)
         
-        selected_model = model_map.get(input_data.model)
         if not selected_model:
             raise HTTPException(status_code=400, detail="Invalid model selection")
         
