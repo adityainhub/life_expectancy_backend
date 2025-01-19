@@ -6,6 +6,7 @@ import joblib
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.decomposition import PCA
 import logging
+import os
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -22,18 +23,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Define base directory and paths
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODELS_DIR = os.path.join(BASE_DIR, 'models')
+SCALING_DIR = os.path.join(BASE_DIR, 'scaling_encoding')
+
 # Load models and encoders
 try:
-    linear_model = joblib.load(r'.\models\linear_regression_model.pkl')
-    gradient_model = joblib.load(r'.\models\gradient_boosting_model.pkl')
-    random_forest_model = joblib.load(r'.\models\random_forest_model.pkl')
-    ensemble_model = joblib.load(r'.\models\ensemble_model.pkl')
+    linear_model = joblib.load(os.path.join(MODELS_DIR, 'linear_regression_model.pkl'))
+    gradient_model = joblib.load(os.path.join(MODELS_DIR, 'gradient_boosting_model.pkl'))
+    random_forest_model = joblib.load(os.path.join(MODELS_DIR, 'random_forest_model.pkl'))
+    ensemble_model = joblib.load(os.path.join(MODELS_DIR, 'ensemble_model.pkl'))
     
     # Load preprocessing objects
-    scaler = joblib.load(r'.\scaling_encoding\scaler.pkl')
-    pca = joblib.load(r'.\scaling_encoding\pca.pkl')
-    country_encoder = joblib.load(r'.\scaling_encoding\country_encoder.pkl')
-    gender_encoder = joblib.load(r'.\scaling_encoding\gender_encoder.pkl')
+    scaler = joblib.load(os.path.join(SCALING_DIR, 'scaler.pkl'))
+    pca = joblib.load(os.path.join(SCALING_DIR, 'pca.pkl'))
+    country_encoder = joblib.load(os.path.join(SCALING_DIR, 'country_encoder.pkl'))
+    gender_encoder = joblib.load(os.path.join(SCALING_DIR, 'gender_encoder.pkl'))
 except Exception as e:
     logger.error(f"Error loading models: {e}")
     raise
@@ -88,7 +94,6 @@ COUNTRIES = [
     "Uzbekistan", "Vanuatu", "Venezuela, RB", "Vietnam", "Virgin Islands (U.S.)", "West Bank and Gaza",
     "World", "Yemen, Rep.", "Zambia", "Zimbabwe"
 ]
-
 
 GENDERS = ["Male", "Female"]
 
@@ -164,9 +169,6 @@ def create_full_feature_array(input_data: PredictionInput):
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid input data: {str(e)}")
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid input data: {str(e)}")
 
 def preprocess_input(input_data: PredictionInput):
     try:
@@ -237,3 +239,7 @@ async def health_check():
 @app.get("/countries")
 async def get_countries():
     return {"countries": COUNTRIES}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
